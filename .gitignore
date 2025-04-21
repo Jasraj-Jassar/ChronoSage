@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+fresh_venv/
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Streamlit secret files
+.streamlit/secrets.toml
+.streamlit/secrets.toml.backup
+
+# Google credentials
+credentials.json
+credentials.json.backup
+token.pickle
+token.pickle.backup
+
+# Environment variables
+.env
+.env.backup
+
+# Logs
+logs/
+*.log
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cleanup script
+cleanup.sh
+
+# Archive folder (may contain old code with sensitive data)
+Archive/ 
