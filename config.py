@@ -17,7 +17,7 @@ class CalendarConfig:
 @dataclass
 class AppConfig:
     CALENDAR_CONFIG: CalendarConfig = field(default_factory=CalendarConfig)
-    APP_TITLE: str = "Time.AI (MST)"
+    APP_TITLE: str = "ChronoSage (MST)"
     DEBUG: bool = False
     MAX_EVENTS: int = 10
     MAX_DAYS_AHEAD: int = 30

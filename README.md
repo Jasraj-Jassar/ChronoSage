@@ -1,6 +1,6 @@
-# Time.AI Calendar Assistant
+# ChronoSage
 
-A Streamlit-based calendar assistant that uses natural language processing to schedule, edit, and view calendar events in Google Calendar.
+An intelligent calendar assistant that uses natural language processing to schedule, edit, and view calendar events in Google Calendar. Specialized for Mountain Time zone users.
 
 ## Features
 
@@ -13,8 +13,8 @@ A Streamlit-based calendar assistant that uses natural language processing to sc
 
 1. Clone this repository:
    ```
-   git clone https://github.com/yourusername/AiCalendar.git
-   cd AiCalendar
+   git clone https://github.com/yourusername/ChronoSage.git
+   cd ChronoSage
    ```
 
 2. Create a Python virtual environment:
