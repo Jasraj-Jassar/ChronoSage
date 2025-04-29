@@ -25,16 +25,28 @@ var/
 # Streamlit secret files
 .streamlit/secrets.toml
 .streamlit/secrets.toml.backup
+**/.streamlit/secrets.toml
+**/.streamlit/secrets.toml.*
 
 # Google credentials
 credentials.json
-credentials.json.backup
+credentials.json.*
 token.pickle
-token.pickle.backup
+token.pickle.*
+**/credentials*.json
+**/token*.pickle
+
+# OpenAI and other API keys
+**/api_key*
+**/*key*.txt
+**/*keys*.txt
+**/*secret*.txt
+**/*credentials*.txt
 
 # Environment variables
 .env
-.env.backup
+.env.*
+**/.env*
 
 # Logs
 logs/
@@ -49,6 +61,14 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+.directory
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+=*
 
 # Cleanup script
 cleanup.sh

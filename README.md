@@ -1,70 +1,101 @@
-# ChronoSage
+# ChronoSage - Intelligent Calendar Assistant
 
-An intelligent calendar assistant that uses natural language processing to schedule, edit, and view calendar events in Google Calendar. Specialized for Mountain Time zone users.
+ChronoSage is a Streamlit-based web application that provides an intelligent interface for managing your Google Calendar. It uses natural language processing to understand scheduling requests and makes calendar management more intuitive.
 
 ## Features
 
-- **Natural Language Processing**: Use everyday language to schedule and manage your calendar events
-- **Google Calendar Integration**: Seamlessly connects with your Google Calendar
-- **Multiple Views**: Schedule, edit, and view your calendar in one application
-- **Time Zone Support**: Designed for Mountain Time (MST/MDT) users
+- 📅 Natural language event scheduling
+- ✏️ Edit existing events using natural language
+- 👁️ View upcoming events
+- ⏰ Timezone-aware scheduling (Mountain Time)
+- 🔒 Secure Google Calendar integration
+- 📱 Responsive web interface
 
-## Setup and Installation
+## Prerequisites
 
-1. Clone this repository:
-   ```
-   git clone https://github.com/yourusername/ChronoSage.git
-   cd ChronoSage
-   ```
+- Python 3.8 or higher
+- Google Calendar API credentials
+- Google account with Calendar access
 
-2. Create a Python virtual environment:
-   ```
-   python -m venv venv
-   source venv/bin/activate  # On Windows, use: venv\Scripts\activate
-   ```
+## Installation
 
-3. Install required packages:
-   ```
-   pip install -r requirements.txt
-   ```
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/ChronoSage.git
+cd ChronoSage
+```
+
+2. Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
 4. Set up Google Calendar API:
    - Go to the [Google Cloud Console](https://console.cloud.google.com/)
    - Create a new project
    - Enable the Google Calendar API
-   - Create OAuth 2.0 credentials (Desktop application)
-   - Download the credentials JSON file and save it as `credentials.json` in the project root
-
-5. Set up OpenAI API:
-   - Get an API key from [OpenAI](https://platform.openai.com/)
-   - Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`
-   - Add your OpenAI API key to this file
-
-## Running the Application
-
-After setting up the project, run the application with:
-
-```
-streamlit run app.py
-```
-
-On first run, you'll need to authorize the application to access your Google Calendar.
+   - Create OAuth 2.0 credentials
+   - Download the credentials and save as `credentials.json` in the project root
 
 ## Usage
 
-### Schedule Events
-Enter natural language commands like:
+1. Start the application:
+```bash
+streamlit run app.py
+```
+
+2. Open your browser and navigate to `http://localhost:8501`
+
+3. Use the application:
+   - **Schedule Tab**: Enter natural language commands to create events
+   - **Edit Tab**: Modify or reschedule existing events
+   - **View Tab**: See your upcoming events
+
+## Examples
+
+### Scheduling Events
 - "Schedule a team meeting tomorrow at 2pm for 1 hour"
-- "Set up a doctor's appointment on July 15 at 9:30am for 45 minutes"
+- "Set up a call with John on Friday at 10am for 30 minutes"
+- "Create a project review meeting next Monday at 3pm for 2 hours"
 
-### Edit Events
-Modify existing events with commands like:
-- "Reschedule my team meeting to Friday at 3pm"
-- "Cancel my doctor's appointment"
+### Editing Events
+- "Reschedule my meeting to tomorrow at 3pm"
+- "Move my call with John to next week"
+- "Cancel tomorrow's team sync"
 
-### View Calendar
-See your upcoming events in a user-friendly format.
+## Development
+
+### Project Structure
+```
+ChronoSage/
+├── app.py                 # Main Streamlit application
+├── calendar_service.py    # Google Calendar integration
+├── event_processor.py     # Natural language processing
+├── auth_manager.py        # Google authentication
+├── config.py             # Configuration settings
+├── requirements.txt      # Project dependencies
+└── README.md            # This file
+```
+
+### Contributing
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Google Calendar API
+- Streamlit
+- OpenAI 
