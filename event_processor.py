@@ -1,63 +1,79 @@
-from datetime import datetime, timedelta
-import pytz
-from openai import OpenAI
 import json
-import streamlit as st
-from typing import Dict, List, Any, Optional, Tuple, Set, Union
-import re
 import logging
-import pandas as pd
-from config import AppConfig, AIConfig
-import nltk
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
-from utils import extract_attendees_from_text, get_weather_for_event
+import os
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+import pytz
+import streamlit as st
+from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from config import AppConfig
+from utils import extract_attendees_from_text, get_weather_for_event
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Download NLTK resources if not already available
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('punkt', quiet=True)
-    nltk.download('stopwords', quiet=True)
-
 class EventProcessor:
-    def __init__(self, timezone: str, api_key: str = None):
-        """Initialize the event processor with timezone and API key"""
+    @staticmethod
+    def _get_secret_value(secrets: Dict[str, Any], *keys: str) -> Optional[str]:
+        """Get the first matching secret value from a dict."""
+        for key in keys:
+            value = secrets.get(key)
+            if value:
+                return value
+        return None
+
+    def __init__(self, timezone: str, api_key: Optional[str] = None, secrets: Optional[dict] = None):
+        """Initialize the event processor with timezone, API key, and optional secrets shim"""
         self.timezone = pytz.timezone(timezone)
         self.app_config = AppConfig()
         self.ai_config = self.app_config.AI_CONFIG
-        
-        # Set up OpenAI client
+
+        # Determine secrets source (allows overriding in tests or CLI environments)
+        secrets_source = secrets if secrets is not None else getattr(st, "secrets", {})
+        openai_secrets = secrets_source.get("openai", {}) if isinstance(secrets_source, dict) else {}
+
+        # Precedence: explicit arg > Streamlit secrets > env var
+        self.api_key = api_key or self._get_secret_value(
+            openai_secrets,
+            "OPENAI_API_KEY",
+            "api_key",
+            "API_KEY"
+        ) or os.getenv("OPENAI_API_KEY")
+
+        # Get organization ID with safe lookup
+        self.organization_id = self._get_secret_value(
+            openai_secrets,
+            "ORGANIZATION_ID",
+            "organization_id",
+            "org_id"
+        )
+
+        # Set up OpenAI client if we have credentials
+        if not self.api_key:
+            self._report_error("OpenAI API key is missing. Calendar creation will be disabled.")
+            self.openai_client = None
+            return
+
         try:
-            self.api_key = api_key or st.secrets["openai"]["OPENAI_API_KEY"]
-            if not self.api_key:
-                st.error("OpenAI API key is missing.")
-                logger.error("OpenAI API key is missing")
-                self.openai_client = None
-                return
-            
-            # Get organization ID if available
-            org_id = None
-            if "ORGANIZATION_ID" in st.secrets["openai"]:
-                org_id = st.secrets["openai"]["ORGANIZATION_ID"]
-            
-            # Initialize OpenAI client
             client_params = {"api_key": self.api_key}
-            if org_id:
-                client_params["organization"] = org_id
-                
+            if self.organization_id:
+                client_params["organization"] = self.organization_id
+
             self.openai_client = OpenAI(**client_params)
             logger.info("EventProcessor initialized successfully")
         except Exception as e:
             error_msg = f"Failed to initialize OpenAI client: {str(e)}"
             logger.error(error_msg)
-            st.error(error_msg)
+            self._report_error(error_msg)
             self.openai_client = None
+
+    def _report_error(self, message: str) -> None:
+        """Report errors via Streamlit when available"""
+        if hasattr(st, "error"):
+            st.error(message)
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def process_create_command(self, user_input: str) -> Optional[Dict[str, Any]]:
@@ -116,6 +132,12 @@ class EventProcessor:
             )
             
             event_details = json.loads(response.choices[0].message.function_call.arguments)
+
+            # Fall back to simple attendee extraction if missing
+            if not event_details.get('attendees'):
+                extracted_attendees = extract_attendees_from_text(user_input)
+                if extracted_attendees:
+                    event_details['attendees'] = extracted_attendees
             
             # Add weather information if a location is provided
             if 'location' in event_details and self.app_config.WEATHER_CONFIG.ENABLED:
@@ -140,7 +162,7 @@ class EventProcessor:
             return event_details
         except Exception as e:
             logger.error(f"Error processing create request: {str(e)}")
-            st.error(f"Error processing request: {str(e)}")
+            self._report_error(f"Error processing request: {str(e)}")
             return None
     
     def _suggest_meeting_preparation(self, event_details: Dict[str, Any]) -> List[str]:
@@ -260,7 +282,7 @@ class EventProcessor:
             return json.loads(response.choices[0].message.function_call.arguments)
         except Exception as e:
             logger.error(f"Error processing edit request: {str(e)}")
-            st.error(f"Error processing edit request: {str(e)}")
+            self._report_error(f"Error processing edit request: {str(e)}")
             return None
 
     def suggest_optimal_meeting_time(self, attendees: List[Dict[str, Any]], 

@@ -1,22 +1,30 @@
-import os
-import re
-import json
 import logging
-import requests
-import datetime
-import pytz
+import re
+from datetime import datetime, timedelta
+from io import BytesIO
+from typing import Any, Dict, List, Optional, Tuple
+
+import geocoder
 import pandas as pd
 import pyshorteners
-import geocoder
-from typing import Dict, List, Any, Optional, Tuple, Union
-from datetime import datetime, timedelta
-from config import AppConfig, NotificationMethod
-from twilio.rest import Client
-from icalendar import Calendar, Event as ICalEvent
-from io import BytesIO
+import requests
+from icalendar import Alarm, Calendar, Event as ICalEvent
 from PIL import Image
+from twilio.rest import Client
+
+from config import AppConfig
 
 logger = logging.getLogger(__name__)
+
+REQUEST_TIMEOUT_SECONDS = 10
+WEATHER_FORECAST_DAYS = 7
+
+def _parse_event_datetime(date: str, time: str) -> Optional[datetime]:
+    """Parse event date/time in the expected format."""
+    try:
+        return datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return None
 
 def get_user_location() -> Tuple[Optional[float], Optional[float]]:
     """Attempt to get the user's current location based on IP"""
@@ -37,11 +45,13 @@ def get_weather_for_event(date: str, time: str, location: Optional[str] = None) 
     
     try:
         # Parse date and time
-        event_datetime = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+        event_datetime = _parse_event_datetime(date, time)
+        if not event_datetime:
+            return {"status": "invalid_datetime"}
         now = datetime.now()
         
         # Check if event is within the forecast window (typically 7 days)
-        if (event_datetime - now).days > 7:
+        if (event_datetime - now).days > WEATHER_FORECAST_DAYS:
             return {"status": "too_far_ahead"}
         
         # Determine location
@@ -51,10 +61,10 @@ def get_weather_for_event(date: str, time: str, location: Optional[str] = None) 
             if g.ok:
                 lat, lng = g.lat, g.lng
         
-        if not lat or not lng:
+        if lat is None or lng is None:
             lat, lng = get_user_location()
             
-        if not lat or not lng:
+        if lat is None or lng is None:
             return {"status": "no_location"}
             
         # Call weather API
@@ -66,9 +76,11 @@ def get_weather_for_event(date: str, time: str, location: Optional[str] = None) 
             "units": config.UNITS
         }
         
-        response = requests.get(url, params=params)
-        if response.status_code != 200:
-            return {"status": "api_error", "error": response.text}
+        try:
+            response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            return {"status": "api_error", "error": str(e)}
             
         data = response.json()
         
@@ -136,7 +148,9 @@ def create_ical_event(event_details: Dict[str, Any]) -> bytes:
         # Parse date and time
         date_str = event_details['date']
         time_str = event_details['time']
-        start_datetime = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+        start_datetime = _parse_event_datetime(date_str, time_str)
+        if not start_datetime:
+            raise ValueError("Invalid date/time format for iCal event.")
         
         # Add timezone information
         config = AppConfig()
@@ -144,7 +158,8 @@ def create_ical_event(event_details: Dict[str, Any]) -> bytes:
         start_datetime = timezone.localize(start_datetime)
         
         # Calculate end time
-        end_datetime = start_datetime + timedelta(minutes=event_details['duration'])
+        duration_minutes = int(event_details['duration'])
+        end_datetime = start_datetime + timedelta(minutes=duration_minutes)
         
         event.add('dtstart', start_datetime)
         event.add('dtend', end_datetime)
@@ -165,11 +180,12 @@ def create_ical_event(event_details: Dict[str, Any]) -> bytes:
             event.add('categories', [event_details['category']])
             
         # Add alarm/reminder
-        if event_details.get('reminder_minutes'):
-            alarm = icalendar.Alarm()
+        reminder_minutes = event_details.get('reminder_minutes')
+        if reminder_minutes is not None:
+            alarm = Alarm()
             alarm.add('action', 'DISPLAY')
             alarm.add('description', f"Reminder: {event_details['title']}")
-            alarm.add('trigger', timedelta(minutes=-event_details['reminder_minutes']))
+            alarm.add('trigger', timedelta(minutes=-int(reminder_minutes)))
             event.add_component(alarm)
             
         cal.add_component(event)
@@ -197,16 +213,40 @@ def analyze_calendar_habits(events: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not events:
             return {"status": "no_data"}
             
-        # Convert to DataFrame for analysis
-        df = pd.DataFrame(events)
+        # Convert to DataFrame for analysis with safer parsing
+        categories = []
+        start_values = []
+        end_values = []
+        for event in events:
+            if isinstance(event, dict):
+                categories.append(event.get('category') or "Uncategorized")
+                start = event.get('start', {})
+                end = event.get('end', {})
+            else:
+                categories.append("Uncategorized")
+                start = {}
+                end = {}
+            if isinstance(start, dict):
+                start_values.append(start.get('dateTime') or start.get('date'))
+            else:
+                start_values.append(None)
+            if isinstance(end, dict):
+                end_values.append(end.get('dateTime') or end.get('date'))
+            else:
+                end_values.append(None)
+                
+        df = pd.DataFrame({
+            "category": categories,
+            "start_dt": pd.to_datetime(start_values, errors='coerce'),
+            "end_dt": pd.to_datetime(end_values, errors='coerce')
+        })
         
         # Basic stats
-        total_events = len(df)
-        categories = df.get('category', pd.Series(['Uncategorized'] * total_events)).value_counts().to_dict()
+        total_events = len(events)
+        categories = df['category'].value_counts().to_dict()
         
         # Time analysis
-        if 'start' in df.columns:
-            df['start_dt'] = pd.to_datetime(df['start'].apply(lambda x: x.get('dateTime', x.get('date'))))
+        if df['start_dt'].notna().any():
             df['hour'] = df['start_dt'].dt.hour
             df['day_of_week'] = df['start_dt'].dt.day_name()
             
@@ -214,10 +254,9 @@ def analyze_calendar_habits(events: List[Dict[str, Any]]) -> Dict[str, Any]:
             busy_days = df['day_of_week'].value_counts().to_dict()
             
             # Calculate average event duration
-            if 'end' in df.columns:
-                df['end_dt'] = pd.to_datetime(df['end'].apply(lambda x: x.get('dateTime', x.get('date'))))
+            if df['end_dt'].notna().any():
                 df['duration_mins'] = (df['end_dt'] - df['start_dt']).dt.total_seconds() / 60
-                avg_duration = df['duration_mins'].mean()
+                avg_duration = df['duration_mins'].dropna().mean()
             else:
                 avg_duration = None
         else:
@@ -262,6 +301,12 @@ def generate_sharing_image(event_details: Dict[str, Any]) -> BytesIO:
 
 def extract_attendees_from_text(text: str) -> List[str]:
     """Extract potential attendees from text using pattern matching"""
+    if not text:
+        return []
+
+    email_pattern = r'[\w\.-]+@[\w\.-]+\.\w+'
+    emails = re.findall(email_pattern, text)
+
     # Common patterns for names in event descriptions
     name_patterns = [
         r'with\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})',
@@ -271,8 +316,9 @@ def extract_attendees_from_text(text: str) -> List[str]:
     
     attendees = []
     for pattern in name_patterns:
-        matches = re.finditer(pattern, text)
+        matches = re.finditer(pattern, text, re.IGNORECASE)
         for match in matches:
             attendees.append(match.group(1).strip())
             
+    attendees.extend(emails)
     return list(set(attendees))  # Remove duplicates 

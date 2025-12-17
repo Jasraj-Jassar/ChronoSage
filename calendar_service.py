@@ -770,13 +770,16 @@ class CalendarManager:
             events = events_result.get('items', [])
             
             # Create search pattern from terms
-            search_pattern = re.compile(search_terms, re.IGNORECASE)
+            terms = search_terms.strip()
+            if not terms:
+                return []
+            safe_pattern = re.compile(re.escape(terms), re.IGNORECASE)
             
             # Filter events matching search terms
             matching_events = [
                 event for event in events
-                if search_pattern.search(event.get('summary', '')) 
-                or search_pattern.search(event.get('description', ''))
+                if safe_pattern.search(event.get('summary', '')) 
+                or safe_pattern.search(event.get('description', ''))
             ]
             
             return matching_events[:max_results]
@@ -785,8 +788,8 @@ class CalendarManager:
             st.error(f"Error finding events: {str(e)}")
             return []
 
-    def get_upcoming_events(self, max_results: int = 10) -> List[str]:
-        """Get a list of upcoming events formatted for display"""
+    def get_upcoming_events(self, max_results: int = 10) -> List[Dict[str, Any]]:
+        """Get a list of upcoming events"""
         try:
             now = datetime.now(self.timezone).isoformat()
             future = (datetime.now(self.timezone) + timedelta(days=30)).isoformat()
@@ -804,17 +807,8 @@ class CalendarManager:
             
             if not events:
                 return []
-                
-            # Format events for display
-            formatted_events = []
-            for event in events:
-                start = event['start'].get('dateTime', event['start'].get('date'))
-                start_dt = datetime.fromisoformat(start).astimezone(self.timezone)
-                
-                formatted_start = start_dt.strftime('%I:%M %p on %B %d, %Y')
-                formatted_events.append(f"{event['summary']} at {formatted_start}")
-                
-            return formatted_events
+
+            return events
             
         except Exception as e:
             st.error(f"Error retrieving events: {str(e)}")

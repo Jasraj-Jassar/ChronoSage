@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytz
 import logging
 from calendar_service import CalendarManager, RecurrenceFrequency
-from config import AppConfig
+from config import AppConfig, Theme
 from streamlit_option_menu import option_menu
 import plotly.express as px
 
@@ -27,7 +27,7 @@ def initialize_session_state():
         st.session_state.current_timezone = app_config.CALENDAR_CONFIG.TIMEZONE
     
     if 'dark_mode' not in st.session_state:
-        st.session_state.dark_mode = app_config.THEME == 'DARK'
+        st.session_state.dark_mode = app_config.THEME == Theme.DARK
     
     if 'event_details' not in st.session_state:
         st.session_state.event_details = None
@@ -78,8 +78,12 @@ def render_header():
     try:
         app_config = AppConfig()
         st.title(app_config.APP_TITLE)
-        current_time_mst = datetime.now(pytz.timezone('America/Denver'))
-        st.write(f"Current time: {current_time_mst.strftime('%I:%M %p MST on %B %d, %Y')}")
+        timezone_name = st.session_state.get('current_timezone', app_config.CALENDAR_CONFIG.TIMEZONE)
+        current_time = datetime.now(pytz.timezone(timezone_name))
+        timezone_label = timezone_name.replace('_', ' ')
+        time_str = current_time.strftime('%I:%M %p')
+        date_str = current_time.strftime('%B %d, %Y')
+        st.write(f"Current time: {time_str} {timezone_label} on {date_str}")
     except Exception as e:
         logger.error(f"Error in render_header: {str(e)}")
         st.error("Failed to render header. Please refresh the page.")
@@ -98,47 +102,15 @@ def initialize_calendar():
     return True
 
 def handle_scheduling(user_input):
-    """Process a scheduling request and display the interpreted details"""
+    """Process a scheduling request and store the interpreted details"""
     try:
         event_details = st.session_state.calendar.process_user_command(user_input)
         
         if event_details:
-            with st.container():
-                st.write("📅 Interpreted Event Details (Mountain Time):")
-                st.write(f"📌 Title: {event_details['title']}")
-                st.write(f"📆 Date: {event_details['date']}")
-                st.write(f"🕒 Time: {event_details['time']} MST")
-                st.write(f"⏱️ Duration: {event_details['duration']} minutes")
-                st.write(f"📝 Description: {event_details.get('description', 'No description provided')}")
-                
-                # Add recurrence options if needed
-                if event_details.get('is_recurring', False):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        frequency = st.selectbox(
-                            "Recurrence Frequency",
-                            [f.value for f in RecurrenceFrequency],
-                            format_func=lambda x: x.capitalize()
-                        )
-                    with col2:
-                        count = st.number_input("Number of occurrences", min_value=1, max_value=365, value=10)
-                    with col3:
-                        interval = st.number_input("Interval", min_value=1, max_value=12, value=1)
-                    
-                    event_details['recurrence'] = {
-                        'frequency': RecurrenceFrequency(frequency),
-                        'count': count,
-                        'interval': interval
-                    }
-                
-                # Add category selection
-                categories = st.session_state.calendar.get_event_categories()
-                selected_category = st.selectbox("Event Category", categories)
-                event_details['category'] = selected_category
-                
-                st.session_state.event_details = event_details
-                st.session_state.show_confirm = True
-                logger.info(f"Successfully processed scheduling request: {event_details['title']}")
+            st.session_state.event_details = event_details
+            st.session_state.show_confirm = True
+            st.session_state.last_schedule_input = user_input
+            logger.info(f"Successfully processed scheduling request: {event_details['title']}")
         else:
             st.warning("Could not interpret the event details. Please try again with clearer information.")
             logger.warning(f"Failed to process scheduling request: {user_input}")
@@ -146,12 +118,92 @@ def handle_scheduling(user_input):
         logger.error(f"Error in handle_scheduling: {str(e)}")
         st.error("An error occurred while processing your request. Please try again.")
 
+def render_event_preview():
+    """Render the event preview and confirmation controls."""
+    event_details = st.session_state.event_details
+    if not event_details:
+        return
+
+    with st.container():
+        timezone_label = st.session_state.current_timezone.replace("_", " ")
+        st.write(f"📅 Interpreted Event Details ({timezone_label}):")
+        st.write(f"📌 Title: {event_details['title']}")
+        st.write(f"📆 Date: {event_details['date']}")
+        st.write(f"🕒 Time: {event_details['time']} {timezone_label}")
+        st.write(f"⏱️ Duration: {event_details['duration']} minutes")
+        st.write(f"📝 Description: {event_details.get('description', 'No description provided')}")
+
+        # Add recurrence options if needed
+        if event_details.get('is_recurring', False):
+            recurrence_options = [f.value for f in RecurrenceFrequency]
+            default_frequency = event_details.get('recurrence_pattern', recurrence_options[0])
+            default_frequency_index = recurrence_options.index(default_frequency) if default_frequency in recurrence_options else 0
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                frequency = st.selectbox(
+                    "Recurrence Frequency",
+                    recurrence_options,
+                    format_func=lambda x: x.capitalize(),
+                    index=default_frequency_index,
+                    key="recurrence_frequency"
+                )
+            with col2:
+                count = st.number_input(
+                    "Number of occurrences",
+                    min_value=1,
+                    max_value=365,
+                    value=event_details.get('recurrence_count', 10),
+                    key="recurrence_count"
+                )
+            with col3:
+                interval = st.number_input(
+                    "Interval",
+                    min_value=1,
+                    max_value=12,
+                    value=event_details.get('recurrence_interval', 1),
+                    key="recurrence_interval"
+                )
+
+            event_details['recurrence_pattern'] = frequency
+            event_details['recurrence_count'] = count
+            event_details['recurrence_interval'] = interval
+
+        # Add category selection
+        categories = st.session_state.calendar.get_event_categories()
+        default_category = event_details.get('category')
+        default_category_index = categories.index(default_category) if default_category in categories else 0
+        selected_category = st.selectbox(
+            "Event Category",
+            categories,
+            index=default_category_index,
+            key="event_category"
+        )
+        event_details['category'] = selected_category
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Add to Calendar", type="primary", key="add_to_calendar"):
+                try:
+                    result = st.session_state.calendar.add_to_calendar(event_details)
+                    st.success(result)
+                    st.session_state.show_confirm = False
+                    st.session_state.event_details = None
+                except Exception as e:
+                    logger.error(f"Error adding event to calendar: {str(e)}")
+                    st.error(f"Failed to add event: {str(e)}")
+        with col2:
+            if st.button("🗑️ Discard", key="discard_event"):
+                st.session_state.show_confirm = False
+                st.session_state.event_details = None
+
 def handle_editing(edit_input):
     """Process an edit request and display the result"""
     try:
         result = st.session_state.calendar.process_edit_command(edit_input)
         if result:
             st.success(result)
+            st.session_state.last_edit_input = edit_input
             logger.info(f"Successfully processed edit request: {edit_input}")
         else:
             st.error("Failed to process edit request")
@@ -159,6 +211,34 @@ def handle_editing(edit_input):
     except Exception as e:
         logger.error(f"Error in handle_editing: {str(e)}")
         st.error("An error occurred while processing your edit request. Please try again.")
+
+def format_event_label(event, timezone):
+    """Format a calendar event for display."""
+    if not isinstance(event, dict):
+        return str(event)
+
+    summary = event.get('summary', 'Untitled Event')
+    start_info = event.get('start') or {}
+    if not isinstance(start_info, dict):
+        start_info = {}
+
+    start_str = start_info.get('dateTime') or start_info.get('date')
+    if not start_str:
+        return summary
+
+    try:
+        if start_info.get('dateTime'):
+            start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+            if start_dt.tzinfo:
+                start_dt = start_dt.astimezone(timezone)
+            formatted_start = start_dt.strftime('%I:%M %p on %B %d, %Y')
+        else:
+            start_dt = datetime.fromisoformat(start_str)
+            formatted_start = start_dt.strftime('%B %d, %Y')
+    except ValueError:
+        formatted_start = start_str
+
+    return f"{summary} at {formatted_start}"
 
 def handle_calendar_view():
     """Display upcoming events from the calendar"""
@@ -186,9 +266,20 @@ def handle_calendar_view():
             if not events:
                 st.info('No events found')
             else:
-                st.write("📅 Events (Mountain Time):")
+                display_timezone = pytz.timezone(st.session_state.current_timezone)
+                timezone_label = st.session_state.current_timezone.replace("_", " ")
+                st.write(f"📅 Events ({timezone_label}):")
                 for event in events:
-                    with st.expander(f"🗓️ {event}"):
+                    label = format_event_label(event, display_timezone)
+                    with st.expander(f"🗓️ {label}"):
+                        if isinstance(event, dict):
+                            location = event.get('location')
+                            if location:
+                                st.write(f"📍 Location: {location}")
+                            description = event.get('description')
+                            if description:
+                                st.write(f"📝 Description: {description}")
+
                         # Add category management
                         if isinstance(event, dict) and 'id' in event:
                             categories = st.session_state.calendar.get_event_categories()
@@ -421,6 +512,10 @@ def handle_settings():
             
             if selected_timezone != st.session_state.current_timezone:
                 st.session_state.current_timezone = selected_timezone
+                if 'calendar' in st.session_state:
+                    st.session_state.calendar.config.TIMEZONE = selected_timezone
+                    st.session_state.calendar.timezone = pytz.timezone(selected_timezone)
+                    st.session_state.calendar.event_processor.timezone = pytz.timezone(selected_timezone)
                 # In a real app, you'd save this preference to a database
                 st.info("Timezone updated. The app will use this timezone for all dates and times.")
                 
@@ -658,6 +753,10 @@ def main():
     
     # Render header
     render_header()
+
+    # Initialize calendar manager
+    if not initialize_calendar():
+        st.stop()
     
     # Sidebar menu
     with st.sidebar:
@@ -697,7 +796,7 @@ def main():
         
         # Show confirmation section if needed
         if st.session_state.show_confirm and st.session_state.event_details:
-            handle_scheduling(user_input)  # Re-run to show the form
+            render_event_preview()
     
     elif selected_tab == "Edit":
         st.subheader("✏️ Edit or Reschedule an Event")
